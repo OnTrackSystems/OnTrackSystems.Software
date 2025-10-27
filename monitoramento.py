@@ -68,7 +68,7 @@ def salvar_csv():
 
 def subirCSVS3():
     client = boto3.client('s3')
-    bucket = 'raw-ontrack' 
+    bucket = 's3-raw-ontracksystems' 
     arquivo = 'coletaGeralOTS.csv'
 
     try:
