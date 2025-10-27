@@ -3,27 +3,27 @@ import pandas as pd
 import time
 from datetime import datetime
 import boto3
+import os
 
-dados = {
-    "timestamp": [],
-    "usuario": [],
-    "CPU": [],
-    # descomente a linha abaixo se estiver no Linux
-    # "tempoI/O": [],
-    "RAM": [],
-    "RAM_Percent": [],
-    "Disco": [],
-    "PacotesEnv": [],
-    "PacotesRec": [],
-    "Num_processos": []
-}
+CPU_POR_ONIBUS = 1.5      
+RAM_MB_POR_ONIBUS = 50    
+INTERVALO_COLETA_SEGUNDOS = 5 
+INTERVALO_UPLOAD_SEGUNDOS = 30 
 
+def contar_onibus_na_garagem(caminho_arquivo=".onibusAtuais"): 
+    try:
+        with open(caminho_arquivo, 'r') as f:
+            num_onibus = sum(1 for line in f if line.strip())
+        return num_onibus
+    except FileNotFoundError:
+        return 0
+    except Exception as e:
+        print(f"Erro ao ler o arquivo .onibusAtuais: {e}")
+        return 0
 
 def obter_uso():
-    cpu = ps.cpu_times(percpu=False)
-    cpuPercent = ps.cpu_percent(interval=1)
-    RAM = ps.virtual_memory()
-    RAM_Percent = ps.virtual_memory().percent
+    cpu_real_percent = ps.cpu_percent(interval=1)
+    ram_real = ps.virtual_memory()
     disco = ps.disk_usage('/')
     rede = ps.net_io_counters(pernic=False, nowrap=True)
     usuario = ps.users()
@@ -31,72 +31,71 @@ def obter_uso():
     user = usuario[0].name if usuario else "Desconhecido"
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
+    num_onibus = contar_onibus_na_garagem()
+
+    carga_cpu_simulada = num_onibus * CPU_POR_ONIBUS
+
+    carga_ram_simulada_bytes = num_onibus * RAM_MB_POR_ONIBUS * (1024 * 1024)
+
+    cpu_final_percent = min(100.0, cpu_real_percent + carga_cpu_simulada)
+    
+    ram_usada_final_bytes = ram_real.used + carga_ram_simulada_bytes
+    ram_usada_final_gb = round(ram_usada_final_bytes / (1024 ** 3), 2)
+    ram_final_percent = min(100.0, (ram_usada_final_bytes / ram_real.total) * 100)
+    
     dados["timestamp"].append(timestamp)
     dados["usuario"].append(user)
-    dados["CPU"].append(cpuPercent)
-    dados["RAM"].append(round(RAM.used / 1024 ** 3))
-    dados["RAM_Percent"].append(RAM_Percent)
-    dados["Disco"].append(round(disco.used / 1024 ** 3))
+    dados["CPU"].append(cpu_final_percent)
+    dados["RAM"].append(ram_usada_final_gb)
+    dados["RAM_Percent"].append(ram_final_percent)
+    dados["Disco"].append(round(disco.used / 1024 ** 3, 2))
     dados["PacotesEnv"].append(rede.packets_sent)
     dados["PacotesRec"].append(rede.packets_recv)
     dados["Num_processos"].append(num_processos)
-    # Descomente a linha abaixo se estiver em um Linux
-    # dados["tempoI/O"].append(cpu.iowait)
-
+    dados["Onibus_Garagem"].append(num_onibus)
 
 def salvar_csv():
     df = pd.DataFrame(dados)
     df.to_csv("coletaGeralOTS.csv", encoding="utf-8", index=False)
 
-
-def monitoramento():
-    try:
-        while True:
-            obter_uso()
-
-            # Exibição no terminal
-            print(
-                f"\nData/Hora: {dados['timestamp'][-1]}"
-                f"\nUsuário: {dados['usuario'][-1]}"
-                f"\nUso da CPU: {dados['CPU'][-1]}%"
-                # Descomente a linha abaixo se estiver em Linux
-                # f"\nTempo de I/O: {dados['tempoI/O'][-1]}s"
-                f"\nRAM: {dados['RAM'][-1]} Gb"
-                f"\nPercentual de uso de RAM: {dados['RAM_Percent'][-1]}%"
-                f"\nDisco usado: {dados['Disco'][-1]} Gb"
-                f"\nPacotes Enviados: {dados['PacotesEnv'][-1]}"
-                f"\nPacotes Recebidos: {dados['PacotesRec'][-1]}"
-                f"\nQuantidade de processos: {dados['Num_processos'][-1]}\n"
-            )
-
-            salvar_csv()
-            time.sleep(1)
-
-    except KeyboardInterrupt:
-        resposta = input("\nVocê deseja parar o monitoramento? (s/n): ").strip().lower()
-        if resposta == 's':
-            print("\nMonitoramento finalizado.")
-        elif resposta == 'n':
-            print("\nO monitoramento continuará.")
-            monitoramento()
-        else:
-            print("\nOpção inválida. Monitoramento continuará.")
-            monitoramento()
-
-
 def subirCSVS3():
-    # IMPORTANTE!
-    # Rodar um "aws configure" e atualizar as informações da sessão da aws, caso contrário, o boto3 não vai conseguir acessar a aws
-    
     client = boto3.client('s3')
-    #substituir pelo nome do bucket raw
     bucket = 'raw-ontrack' 
     arquivo = 'coletaGeralOTS.csv'
 
-    client.upload_file(arquivo, bucket, arquivo)
-    print("Arquivo adicionado ao bucket com sucesso!")
+    try:
+        print(f"\n--- Subindo '{arquivo}' para o bucket S3 '{bucket}' ---")
+        client.upload_file(arquivo, bucket, arquivo)
+        print("--- Upload para o S3 concluído com sucesso! ---")
+    except FileNotFoundError:
+        print(f"Arquivo {arquivo} não encontrado para upload.")
+    except Exception as e:
+        print(f"--- Falha ao subir o arquivo para o S3: {e} ---")
+
+def monitoramento():
+    tempo_desde_ultimo_upload = 0
+    try:
+        while True:
+            obter_uso()
+            salvar_csv()
+
+            tempo_desde_ultimo_upload += INTERVALO_COLETA_SEGUNDOS
+
+            if tempo_desde_ultimo_upload >= INTERVALO_UPLOAD_SEGUNDOS:
+                subirCSVS3()
+                tempo_desde_ultimo_upload = 0
+                
+            time.sleep(INTERVALO_COLETA_SEGUNDOS) 
+
+    except KeyboardInterrupt:
+        print("\nMonitoramento interrompido pelo usuário.")
+
+        resposta = input("Deseja fazer um último upload para a AWS com os dados coletados? (s/n): ").strip().lower()
+        if resposta == 's':
+            print("\nRealizando último upload...")
+            salvar_csv() 
+            subirCSVS3()
 
 
-# Execução principal
 monitoramento()
-subirCSVS3()
+print("\nPrograma finalizado.")
