@@ -8,7 +8,13 @@ import os
 CPU_POR_ONIBUS = 1.5      
 RAM_MB_POR_ONIBUS = 50    
 INTERVALO_COLETA_SEGUNDOS = 5 
-INTERVALO_UPLOAD_SEGUNDOS = 30 
+INTERVALO_UPLOAD_SEGUNDOS = 30
+
+dados = {
+    "timestamp": [], "usuario": [], "CPU": [], "RAM": [], "RAM_Percent": [],
+    "Disco": [], "PacotesEnv": [], "PacotesRec": [], "Num_processos": [],
+    "Onibus_Garagem": []
+}
 
 def contar_onibus_na_garagem(caminho_arquivo=".onibusAtuais"): 
     try:
@@ -18,7 +24,7 @@ def contar_onibus_na_garagem(caminho_arquivo=".onibusAtuais"):
     except FileNotFoundError:
         return 0
     except Exception as e:
-        print(f"Erro ao ler o arquivo .onibusAtuais: {e}")
+        print(f"Erro ao ler o arquivo {caminho_arquivo}: {e}")
         return 0
 
 def obter_uso():
@@ -36,7 +42,6 @@ def obter_uso():
     num_onibus = contar_onibus_na_garagem()
 
     carga_cpu_simulada = num_onibus * CPU_POR_ONIBUS
-
     carga_ram_simulada_bytes = num_onibus * RAM_MB_POR_ONIBUS * (1024 * 1024)
 
     cpu_final_percent = min(100.0, cpu_real_percent + carga_cpu_simulada)
@@ -58,7 +63,6 @@ def obter_uso():
 
 def salvar_csv():
     global dados
-
     df = pd.DataFrame(dados)
     df.to_csv("coletaGeralOTS.csv", encoding="utf-8", index=False)
 
@@ -75,18 +79,25 @@ def subirCSVS3():
         print(f"Arquivo {arquivo} não encontrado para upload.")
     except Exception as e:
         print(f"--- Falha ao subir o arquivo para o S3: {e} ---")
-
+        
 def monitoramento():
+    global dados
     tempo_desde_ultimo_upload = 0
     try:
         while True:
             obter_uso()
             salvar_csv()
+            
+            print(f"[{dados['timestamp'][-1]}] CPU: {dados['CPU'][-1]:.2f}%, RAM: {dados['RAM_Percent'][-1]:.2f}%, Ônibus: {dados['Onibus_Garagem'][-1]}")
 
             tempo_desde_ultimo_upload += INTERVALO_COLETA_SEGUNDOS
 
             if tempo_desde_ultimo_upload >= INTERVALO_UPLOAD_SEGUNDOS:
                 subirCSVS3()
+                
+                print("--- Lote enviado. Limpando dados para o próximo ciclo. ---")
+                dados = {key: [] for key in dados}
+                
                 tempo_desde_ultimo_upload = 0
                 
             time.sleep(INTERVALO_COLETA_SEGUNDOS) 
@@ -94,12 +105,12 @@ def monitoramento():
     except KeyboardInterrupt:
         print("\nMonitoramento interrompido pelo usuário.")
 
-        resposta = input("Deseja fazer um último upload para a AWS com os dados coletados? (s/n): ").strip().lower()
-        if resposta == 's':
-            print("\nRealizando último upload...")
-            salvar_csv() 
-            subirCSVS3()
-
+        if any(dados.values()):
+            resposta = input("Deseja fazer um último upload para a AWS com os dados restantes? (s/n): ").strip().lower()
+            if resposta == 's':
+                print("\nRealizando último upload...")
+                salvar_csv() 
+                subirCSVS3()
 
 monitoramento()
 print("\nPrograma finalizado.")
