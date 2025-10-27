@@ -22,6 +22,8 @@ def contar_onibus_na_garagem(caminho_arquivo=".onibusAtuais"):
         return 0
 
 def obter_uso():
+    global dados
+
     cpu_real_percent = ps.cpu_percent(interval=1)
     ram_real = ps.virtual_memory()
     disco = ps.disk_usage('/')
@@ -55,6 +57,8 @@ def obter_uso():
     dados["Onibus_Garagem"].append(num_onibus)
 
 def salvar_csv():
+    global dados
+
     df = pd.DataFrame(dados)
     df.to_csv("coletaGeralOTS.csv", encoding="utf-8", index=False)
 
