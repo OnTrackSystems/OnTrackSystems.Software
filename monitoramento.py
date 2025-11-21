@@ -84,7 +84,7 @@ def subirCSVS3():
     arquivo = 'coletaGeralOTS.csv'
     client = boto3.client('s3')
     bucket = 's3-raw-ontracksystems' 
-    caminhos3 = '/idGaragem={}/ano={}/mes={}/dia={}/hora={}/coleta_{}{}{}.csv'.format(idGaragem, anoAtual, mesAtual, diaAtual, horaAtual, horaAtual, minutoAtual, segundoAtual)
+    caminhos3 = 'idGaragem={}/ano={}/mes={}/dia={}/hora={}/coleta_{}{}{}.csv'.format(idGaragem, anoAtual, mesAtual, diaAtual, horaAtual, horaAtual, minutoAtual, segundoAtual)
 
     try:
         print(f"\n--- Subindo '{arquivo}' para o bucket S3 '{bucket}' ---")
