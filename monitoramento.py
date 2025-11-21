@@ -26,6 +26,11 @@ def contar_onibus_na_garagem(caminho_arquivo=".onibusAtuais"):
     except Exception as e:
         print(f"Erro ao ler o arquivo {caminho_arquivo}: {e}")
         return 0
+    
+def get_id_garagem(caminho_arquivo=".uuid"):
+    with open(caminho_arquivo, 'r') as f:
+        parametros = f.readLine().split(',')
+        return parametros[4]
 
 def obter_uso():
     global dados
@@ -67,13 +72,23 @@ def salvar_csv():
     df.to_csv("coletaGeralOTS.csv", encoding="utf-8", index=False)
 
 def subirCSVS3():
+    idGaragem = get_id_garagem()
+
+    anoAtual = datetime.now().strftime('%Y')
+    mesAtual = datetime.now().strftime('%m')
+    diaAtual = datetime.now().strftime('%d')
+    horaAtual = datetime.now().strftime('%H')
+    minutoAtual = datetime.now().strftime('%M')
+    segundoAtual = datetime.now().strftime('%S')
+
+    arquivo = 'coletaGeralOTS.csv'
     client = boto3.client('s3')
     bucket = 's3-raw-ontracksystems' 
-    arquivo = 'coletaGeralOTS.csv'
+    caminhos3 = '/idGaragem={}/ano={}/mes={}/dia={}/hora={}/coleta_{}{}{}.csv'.format(idGaragem, anoAtual, mesAtual, diaAtual, horaAtual, horaAtual, minutoAtual, segundoAtual)
 
     try:
         print(f"\n--- Subindo '{arquivo}' para o bucket S3 '{bucket}' ---")
-        client.upload_file(arquivo, bucket, arquivo)
+        client.upload_file(arquivo, bucket, caminhos3)
         print("--- Upload para o S3 concluído com sucesso! ---")
     except FileNotFoundError:
         print(f"Arquivo {arquivo} não encontrado para upload.")
