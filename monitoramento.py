@@ -29,7 +29,7 @@ def contar_onibus_na_garagem(caminho_arquivo=".onibusAtuais"):
     
 def get_id_garagem(caminho_arquivo=".uuid"):
     with open(caminho_arquivo, 'r') as f:
-        parametros = f.readLine().split(',')
+        parametros = f.readline().split(',')
         return parametros[4]
 
 def obter_uso():
