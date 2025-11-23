@@ -44,6 +44,24 @@ def obter_uso():
     user = usuario[0].name if usuario else "Desconhecido"
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
+    # Cálculo de MB por segundo
+    bytes_sent_atual = rede.bytes_sent
+    bytes_recv_atual = rede.bytes_recv
+
+    delta_sent = bytes_sent_atual - bytes_sent_init
+    delta_recv = bytes_recv_atual - bytes_recv_init
+
+    mb_sent_seg = bytes_para_mb(delta_sent)
+    mb_recv_seg = bytes_para_mb(delta_recv)
+
+    # Total acumulado desde o início
+    mb_total_env = bytes_para_mb(bytes_sent_atual - stats_iniciais.bytes_sent)
+    mb_total_rec = bytes_para_mb(bytes_recv_atual - stats_iniciais.bytes_recv)
+
+    # Atualiza baseline para o próximo segundo
+    bytes_sent_init = bytes_sent_atual
+    bytes_recv_init = bytes_recv_atual
+
     num_onibus = contar_onibus_na_garagem()
 
     carga_cpu_simulada = num_onibus * CPU_POR_ONIBUS
@@ -64,6 +82,10 @@ def obter_uso():
     dados["PacotesEnv"].append(rede.packets_sent)
     dados["PacotesRec"].append(rede.packets_recv)
     dados["Num_processos"].append(num_processos)
+    dados["MB_Enviados_Seg"].append(round(mb_sent_seg, 2))
+    dados["MB_Recebidos_Seg"].append(round(mb_recv_seg, 2))
+    dados["MB_Total_Enviados"].append(round(mb_total_env, 2))
+    dados["MB_Total_Recebidos"].append(round(mb_total_rec, 2))
     dados["Onibus_Garagem"].append(num_onibus)
 
 def salvar_csv():
