@@ -13,8 +13,19 @@ INTERVALO_UPLOAD_SEGUNDOS = 30
 dados = {
     "timestamp": [], "usuario": [], "CPU": [], "RAM": [], "RAM_Percent": [],
     "Disco": [], "PacotesEnv": [], "PacotesRec": [], "Num_processos": [],
+    "MB_Enviados_Seg": [], "MB_Recebidos_Seg": [], 
+    "MB_Total_Enviados": [], "MB_Total_Recebidos": [],
     "Onibus_Garagem": []
 }
+
+stats_iniciais = ps.net_io_counters(pernic=False, nowrap=True)
+bytes_sent_init = stats_iniciais.bytes_sent
+bytes_recv_init = stats_iniciais.bytes_recv
+
+
+def bytes_para_mb(bytes_value):
+    """Converte bytes para Megabytes"""
+    return bytes_value / (1024 * 1024)
 
 def contar_onibus_na_garagem(caminho_arquivo=".onibusAtuais"): 
     try:
@@ -28,12 +39,17 @@ def contar_onibus_na_garagem(caminho_arquivo=".onibusAtuais"):
         return 0
     
 def get_id_garagem(caminho_arquivo=".uuid"):
-    with open(caminho_arquivo, 'r') as f:
-        parametros = f.readline().split(',')
-        return parametros[4]
+    try:
+        with open(caminho_arquivo, 'r') as f:
+            parametros = f.readline().split(',')
+            if len(parametros) >= 5:
+                return parametros[4].strip()
+            return "id_desconhecido"
+    except FileNotFoundError:
+        return "garagem_padrao"
 
 def obter_uso():
-    global dados
+    global dados, bytes_sent_init, bytes_recv_init
 
     cpu_real_percent = ps.cpu_percent(interval=1)
     ram_real = ps.virtual_memory()
@@ -44,7 +60,6 @@ def obter_uso():
     user = usuario[0].name if usuario else "Desconhecido"
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-    # Cálculo de MB por segundo
     bytes_sent_atual = rede.bytes_sent
     bytes_recv_atual = rede.bytes_recv
 
@@ -54,11 +69,9 @@ def obter_uso():
     mb_sent_seg = bytes_para_mb(delta_sent)
     mb_recv_seg = bytes_para_mb(delta_recv)
 
-    # Total acumulado desde o início
     mb_total_env = bytes_para_mb(bytes_sent_atual - stats_iniciais.bytes_sent)
     mb_total_rec = bytes_para_mb(bytes_recv_atual - stats_iniciais.bytes_recv)
 
-    # Atualiza baseline para o próximo segundo
     bytes_sent_init = bytes_sent_atual
     bytes_recv_init = bytes_recv_atual
 
@@ -72,7 +85,7 @@ def obter_uso():
     ram_usada_final_bytes = ram_real.used + carga_ram_simulada_bytes
     ram_usada_final_gb = round(ram_usada_final_bytes / (1024 ** 3), 2)
     ram_final_percent = min(100.0, (ram_usada_final_bytes / ram_real.total) * 100)
-    
+
     dados["timestamp"].append(timestamp)
     dados["usuario"].append(user)
     dados["CPU"].append(cpu_final_percent)
@@ -120,12 +133,15 @@ def subirCSVS3():
 def monitoramento():
     global dados
     tempo_desde_ultimo_upload = 0
+    
+    print("Iniciando monitoramento...")
     try:
         while True:
             obter_uso()
             salvar_csv()
             
-            print(f"[{dados['timestamp'][-1]}] CPU: {dados['CPU'][-1]:.2f}%, RAM: {dados['RAM_Percent'][-1]:.2f}%, Ônibus: {dados['Onibus_Garagem'][-1]}")
+            if dados['timestamp']:
+                print(f"[{dados['timestamp'][-1]}] CPU: {dados['CPU'][-1]:.2f}%, RAM: {dados['RAM_Percent'][-1]:.2f}%, Ônibus: {dados['Onibus_Garagem'][-1]}")
 
             tempo_desde_ultimo_upload += INTERVALO_COLETA_SEGUNDOS
 
@@ -142,12 +158,16 @@ def monitoramento():
     except KeyboardInterrupt:
         print("\nMonitoramento interrompido pelo usuário.")
 
-        if any(dados.values()):
-            resposta = input("Deseja fazer um último upload para a AWS com os dados restantes? (s/n): ").strip().lower()
-            if resposta == 's':
-                print("\nRealizando último upload...")
-                salvar_csv() 
-                subirCSVS3()
+        if any(dados.values()) and len(dados['timestamp']) > 0:
+            try:
+                resposta = input("Deseja fazer um último upload para a AWS com os dados restantes? (s/n): ").strip().lower()
+                if resposta == 's':
+                    print("\nRealizando último upload...")
+                    salvar_csv() 
+                    subirCSVS3()
+            except EOFError:
+                pass
 
-monitoramento()
-print("\nPrograma finalizado.")
+if __name__ == "__main__":
+    monitoramento()
+    print("\nPrograma finalizado.")
