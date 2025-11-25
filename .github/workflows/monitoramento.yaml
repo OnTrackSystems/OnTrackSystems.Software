@@ -5,7 +5,11 @@ on: [push]
 jobs:
   build:
     runs-on: ubuntu-latest
-
+    
+    permissions:
+      contents: read
+      id-token: write
+      
     steps:
     - uses: actions/checkout@v3
 
@@ -24,11 +28,4 @@ jobs:
         EMAIL_JIRA: ${{ secrets.EMAIL_JIRA }}
         TOKEN_JIRA: ${{ secrets.TOKEN_JIRA }}
         
-      run: |
-        # 🚨 DEBUG: Verifica se as variáveis foram carregadas antes de rodar o Python
-        echo "Verificando variáveis de ambiente antes da execução:"
-        echo "EMAIL_JIRA: ${EMAIL_JIRA:+SIM} (Injetado)" || echo "EMAIL_JIRA: NAO (Vazio)"
-        echo "TOKEN_JIRA: ${TOKEN_JIRA:+SIM} (Injetado)" || echo "TOKEN_JIRA: NAO (Vazio)"
-        
-        # Comando para rodar o script
-        python monitoramento.py
+      run: python monitoramento.py
