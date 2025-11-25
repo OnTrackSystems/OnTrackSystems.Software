@@ -23,4 +23,4 @@ jobs:
       env:
         EMAIL_JIRA: ${{ secrets.EMAIL_JIRA }}
         TOKEN_JIRA: ${{ secrets.TOKEN_JIRA }}
-        run: python monitoramento_servidor.py
+        run: python monitoramento.py
