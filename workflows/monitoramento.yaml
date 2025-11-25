@@ -21,6 +21,9 @@ jobs:
 
     - name: Rodar Script de Monitoramento
       env:
+        # Lado Esquerdo: Nome que o Python vai ler (os.getenv('EMAIL_JIRA'))
+        # Lado Direito: Onde o GitHub guarda o segredo (${{ secrets.EMAIL_JIRA }})
         EMAIL_JIRA: ${{ secrets.EMAIL_JIRA }}
         TOKEN_JIRA: ${{ secrets.TOKEN_JIRA }}
-        run: python monitoramento.py
+        
+      run: python monitoramento.py
