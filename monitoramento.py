@@ -9,8 +9,8 @@ import json
 import os
 
 # --- CONFIGURAÇÕES DO AMBIENTE (GITHUB ACTIONS / SISTEMA) ---
-JIRA_EMAIL = os.getenv('EMAIL_JIRA')
-JIRA_TOKEN = os.getenv('TOKEN_JIRA')
+JIRA_EMAIL = os.environ.get('EMAIL_JIRA')
+JIRA_TOKEN = os.environ.get('TOKEN_JIRA')
 
 
 # Debug para confirmar se o GitHub injetou corretamente
