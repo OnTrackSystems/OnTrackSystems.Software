@@ -3,25 +3,24 @@ import pandas as pd
 import time
 from datetime import datetime
 import boto3
+import os
 import requests
 from requests.auth import HTTPBasicAuth
 import json
-import os
-
-# --- CONFIGURAÇÕES DO AMBIENTE (GITHUB ACTIONS / SISTEMA) ---
-JIRA_EMAIL = os.environ.get('EMAIL_JIRA')
-JIRA_TOKEN = os.environ.get('TOKEN_JIRA')
+from dotenv import load_dotenv
 
 
-# Debug para confirmar se o GitHub injetou corretamente
-print(f"DEBUG JIRA_EMAIL: {'Carregado' if JIRA_EMAIL else 'NÃO CARREGADO (None)'}")
-print(f"DEBUG JIRA_TOKEN: {'Carregado' if JIRA_TOKEN else 'NÃO CARREGADO (None)'}")
+load_dotenv('.env.dev')
 
 JIRA_DOMAIN = 'https://ontracksys.atlassian.net'
 PROJECT_KEY = "CHAM"
 JSM_URL = f"{JIRA_DOMAIN}/rest/servicedeskapi/request"
 SERVICEDESK_ID = "2"
 REQUEST_TYPE_ID = "10050"
+JIRA_EMAIL = os.getenv('JIRA_EMAIL')
+JIRA_TOKEN = os.getenv('JIRA_API_TOKEN')
+print(f"DEBUG JIRA_EMAIL: {'Carregado' if JIRA_EMAIL else 'NÃO CARREGADO (None)'}")
+print(f"DEBUG JIRA_TOKEN: {'Carregado' if JIRA_TOKEN else 'NÃO CARREGADO (None)'}")
 
 CPU_POR_ONIBUS = 1.5      
 RAM_MB_POR_ONIBUS = 50    
@@ -56,7 +55,6 @@ def contar_onibus_na_garagem(caminho_arquivo=".onibusAtuais"):
         print(f"Erro ao ler o arquivo {caminho_arquivo}: {e}")
         return 0
 
-# Variáveis globais de garagem
 nome_garagem = ""
 id_garagem = ""
 
@@ -66,9 +64,10 @@ def get_id_garagem(caminho_arquivo=".uuid"):
         with open(caminho_arquivo, 'r') as f:
             parametros = f.readline().split(',')
             if len(parametros) >= 5:
-                id_garagem = parametros[0].strip()   
-                nome_garagem = parametros[1].strip()                 
-                return parametros[4].strip() # Retorna índice 4 para o S3
+                nome_garagem = parametros[1].strip() 
+                id_garagem = parametros[0].strip() 
+
+                return parametros[4].strip()
             return "id_desconhecido"
     except FileNotFoundError:
         return "garagem_padrao"
@@ -132,8 +131,7 @@ def salvar_csv():
     df.to_csv("coletaGeralOTS.csv", encoding="utf-8", index=False)
 
 def subirCSVS3():
-    # Nota: get_id_garagem retorna o parametro[4] para uso no caminho S3
-    idGaragemS3 = get_id_garagem() 
+    idGaragem = get_id_garagem()
 
     anoAtual = datetime.now().strftime('%Y')
     mesAtual = datetime.now().strftime('%m')
@@ -143,14 +141,9 @@ def subirCSVS3():
     segundoAtual = datetime.now().strftime('%S')
 
     arquivo = 'coletaGeralOTS.csv'
-    
-    # Boto3 pega automaticamente AWS_ACCESS_KEY_ID e AWS_SECRET_ACCESS_KEY do ambiente
     client = boto3.client('s3')
-    
-    # Se quiser pegar o bucket do ambiente também:
-    bucket = os.getenv('S3_BUCKET_NAME') or 's3-raw-ontracksystems'
-    
-    caminhos3 = 'idGaragem={}/ano={}/mes={}/dia={}/hora={}/coleta_{}{}{}.csv'.format(idGaragemS3, anoAtual, mesAtual, diaAtual, horaAtual, horaAtual, minutoAtual, segundoAtual)
+    bucket = 's3-raw-ontracksystems' 
+    caminhos3 = 'idGaragem={}/ano={}/mes={}/dia={}/hora={}/coleta_{}{}{}.csv'.format(idGaragem, anoAtual, mesAtual, diaAtual, horaAtual, horaAtual, minutoAtual, segundoAtual)
 
     try:
         print(f"\n--- Subindo '{arquivo}' para o bucket S3 '{bucket}' ---")
@@ -214,10 +207,6 @@ COOLDOWN_SEGUNDOS = 300
 def abrir_solicitacao_jsm(componente, valor_atual, limite):
     """Cria uma solicitação no Jira Service Management (JSM)."""
     
-    if not JIRA_EMAIL or not JIRA_TOKEN:
-        print(" Erro: Credenciais do Jira não carregadas. Verifique as Secrets do GitHub.")
-        return
-
     auth = HTTPBasicAuth(JIRA_EMAIL, JIRA_TOKEN)
     headers = {
         "Accept": "application/json",
