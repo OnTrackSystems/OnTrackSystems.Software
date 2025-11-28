@@ -9,24 +9,28 @@ from requests.auth import HTTPBasicAuth
 import json
 from dotenv import load_dotenv
 
-
 load_dotenv('.env.dev')
 
+
 JIRA_DOMAIN = 'https://ontracksys.atlassian.net'
-PROJECT_KEY = "CHAM"
-JSM_URL = f"{JIRA_DOMAIN}/rest/servicedeskapi/request"
-SERVICEDESK_ID = "2"
-REQUEST_TYPE_ID = "10050"
+
+PROJECT_KEY = "CHM" 
+JIRA_CORE_URL = f"{JIRA_DOMAIN}/rest/api/3/issue" 
+
 JIRA_EMAIL = os.getenv('JIRA_EMAIL')
 JIRA_TOKEN = os.getenv('JIRA_API_TOKEN')
+
 print(f"DEBUG JIRA_EMAIL: {'Carregado' if JIRA_EMAIL else 'NÃO CARREGADO (None)'}")
 print(f"DEBUG JIRA_TOKEN: {'Carregado' if JIRA_TOKEN else 'NÃO CARREGADO (None)'}")
 
+# --- CONFIGURAÇÕES DE MONITORAMENTO ---
 CPU_POR_ONIBUS = 1.5      
 RAM_MB_POR_ONIBUS = 50    
 INTERVALO_COLETA_SEGUNDOS = 5 
 INTERVALO_UPLOAD_SEGUNDOS = 30
+COOLDOWN_SEGUNDOS = 300 # 5 minutos
 
+# --- VARIÁVEIS DE DADOS ---
 dados = {
     "timestamp": [], "usuario": [], "CPU": [], "RAM": [], "RAM_Percent": [],
     "Disco": [], "PacotesEnv": [], "PacotesRec": [], "Num_processos": [],
@@ -39,7 +43,11 @@ stats_iniciais = ps.net_io_counters(pernic=False, nowrap=True)
 bytes_sent_init = stats_iniciais.bytes_sent
 bytes_recv_init = stats_iniciais.bytes_recv
 
+# Variáveis globais de garagem
+nome_garagem = ""
+id_garagem = ""
 
+# --- FUNÇÕES AUXILIARES DE SISTEMA ---
 def bytes_para_mb(bytes_value):
     """Converte bytes para Megabytes"""
     return bytes_value / (1024 * 1024)
@@ -55,18 +63,14 @@ def contar_onibus_na_garagem(caminho_arquivo=".onibusAtuais"):
         print(f"Erro ao ler o arquivo {caminho_arquivo}: {e}")
         return 0
 
-nome_garagem = ""
-id_garagem = ""
-
 def get_id_garagem(caminho_arquivo=".uuid"):
     global nome_garagem, id_garagem
     try:
         with open(caminho_arquivo, 'r') as f:
             parametros = f.readline().split(',')
             if len(parametros) >= 5:
-                nome_garagem = parametros[1].strip() 
-                id_garagem = parametros[0].strip() 
-
+                id_garagem = parametros[0].strip()   
+                nome_garagem = parametros[1].strip()                 
                 return parametros[4].strip()
             return "id_desconhecido"
     except FileNotFoundError:
@@ -153,7 +157,7 @@ def subirCSVS3():
         print(f"Arquivo {arquivo} não encontrado para upload.")
     except Exception as e:
         print(f"--- Falha ao subir o arquivo para o S3: {e} ---")
-        
+
 def monitoramento():
     global dados
     tempo_desde_ultimo_upload = 0
@@ -196,16 +200,12 @@ def monitoramento():
             except EOFError:
                 pass
 
+# --- ESTADO DE ALERTAS (CRÍTICO E MÉDIO) ---
+ultimo_alerta_critico = { "CPU": 0, "RAM": 0, "Disco": 0 }
+ultimo_alerta_medio = { "CPU": 0, "RAM": 0, "Disco": 0 }
 
-ultimo_alerta = {
-    "CPU": 0,
-    "RAM": 0,
-    "Disco": 0
-}
-COOLDOWN_SEGUNDOS = 300
-
-def abrir_solicitacao_jsm(componente, valor_atual, limite):
-    """Cria uma solicitação no Jira Service Management (JSM)."""
+def abrir_chamado_jira(componente, valor_atual, limite, nivel):
+    """Cria um chamado no Jira Core API (v3) com suporte a prioridades."""
     
     auth = HTTPBasicAuth(JIRA_EMAIL, JIRA_TOKEN)
     headers = {
@@ -213,76 +213,112 @@ def abrir_solicitacao_jsm(componente, valor_atual, limite):
         "Content-Type": "application/json"
     }
 
-    summary_tag = "[ALERTA CRÍTICO]" 
+    # Define a prioridade e tag com base no nível (Inglês confirmado)
+    if nivel == "CRITICO":
+        tag = "[ALERTA CRÍTICO]"
+        jira_priority = "Highest" 
+    elif nivel == "MEDIO":
+        tag = "[ALERTA MÉDIO]"
+        jira_priority = "Medium"
+    else:
+        tag = "[ALERTA]"
+        jira_priority = "Medium"
 
+    # Estrutura do body para API Core (/rest/api/3/issue)
+    # Usa issuetype "Task" conforme confirmado
     payload = {
-        "serviceDeskId": SERVICEDESK_ID,
-        "requestTypeId": REQUEST_TYPE_ID,
-        "requestFieldValues": {
-            "summary": f"{summary_tag} {componente} atingiu {valor_atual:.2f}% de uso.",
-            "description": (
-                f"O monitoramento detectou uso perigoso:\n"
-                f"- Componente: {componente}\n"
-                f"- Valor Atual: {valor_atual:.2f}%\n"
-                f"- Limite Definido: {limite}%\n"
-                f"- Garagem: {nome_garagem}\n"
-                f"- ID da Garagem: {id_garagem}"
-            ),
-        },
-        
+        "fields": {
+            "project": {"key": PROJECT_KEY},
+            "summary": f"{tag} {componente} atingiu {valor_atual:.2f}% de uso - Garagem: {nome_garagem}",
+            "issuetype": {"name": "Task"}, 
+            "priority": {"name": jira_priority},
+            "description": {
+                "type": "doc",
+                "version": 1,
+                "content": [
+                    {
+                        "type": "paragraph",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": f"O monitoramento detectou uma anomalia (Nível {nivel}).\n"
+                            },
+                            {
+                                "type": "text",
+                                "text": f"Componente: {componente}\nValor Atual: {valor_atual:.2f}%\nLimite: {limite}%\nID: {id_garagem}",
+                                "marks": [{"type": "strong"}]
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
     }
 
     try:
-        print(f"Tentando abrir solicitação JSM ({REQUEST_TYPE_ID})...")
-        response = requests.post(JSM_URL, json=payload, headers=headers, auth=auth)
+        print(f"Tentando abrir chamado JIRA ({nivel})...")
+        response = requests.post(JIRA_CORE_URL, json=payload, headers=headers, auth=auth)
 
         if response.status_code == 201:
-            ticket_key = response.json().get('issueKey')
-            print(f"Solicitação JSM criada com sucesso! Chave: {ticket_key}")
+            ticket_key = response.json().get('key')
+            print(f" Chamado JIRA ({nivel}) criado com sucesso! Chave: {ticket_key}")
+            return True
         else:
-            print(f"Erro ao abrir solicitação: {response.status_code}")
-            print("Detalhes do erro JSM:")
+            print(f" Erro ao abrir chamado: {response.status_code}")
+            print("Detalhes do erro JIRA:")
             print(json.dumps(response.json(), indent=4, ensure_ascii=False))
+            return False
 
     except Exception as e:
-        print(f" Erro de conexão com Jira JSM: {e}")
+        print(f" Erro de conexão com JIRA: {e}")
+        return False
 
 def verificar_alertas():
     if not dados['timestamp']:
         return
 
-    # --- DEFINA SEUS LIMITES AQUI ---
-    LIMITES = {
-        "CPU": 90.0,        # x%
-        "RAM": 60.0,        # x%
-        "Disco": 95.0       # x% 
+    # --- DEFINIÇÃO DE LIMITES ---
+    LIMITES_CRITICOS = {
+        "CPU": 90.0,
+        "RAM": 90.0,  # Ajuste conforme necessidade
+        "Disco": 95.0
+    }
+    
+    LIMITES_MEDIOS = {
+        "CPU": 70.0,
+        "RAM": 75.0,
+        "Disco": 85.0
     }
 
-    
-    # 1.CPU
     cpu_val = dados['CPU'][-1]
-    if cpu_val > LIMITES['CPU']:
-        agora = time.time()
-        if (agora - ultimo_alerta['CPU']) > COOLDOWN_SEGUNDOS:
-            abrir_solicitacao_jsm("CPU", cpu_val, LIMITES['CPU'])
-            ultimo_alerta['CPU'] = agora
-
-    # 2.RAM (%)
     ram_val = dados['RAM_Percent'][-1]
-    if ram_val > LIMITES['RAM']:
-        agora = time.time()
-        if (agora - ultimo_alerta['RAM']) > COOLDOWN_SEGUNDOS:
-            abrir_solicitacao_jsm("RAM", ram_val, LIMITES['RAM'])
-            ultimo_alerta['RAM'] = agora
-
-    # Disco
     disco_percent = ps.disk_usage('/').percent
-    if disco_percent > LIMITES['Disco']:
-        agora = time.time()
-        if (agora - ultimo_alerta['Disco']) > COOLDOWN_SEGUNDOS:
-            abrir_solicitacao_jsm("Disco", disco_percent, LIMITES['Disco'])
-            ultimo_alerta['Disco'] = agora
+    agora = time.time()
 
+    componentes_criticos_neste_ciclo = set()
+
+    for componente, valor_atual in [("CPU", cpu_val), ("RAM", ram_val), ("Disco", disco_percent)]:
+        limite = LIMITES_CRITICOS[componente]
+        
+        if valor_atual > limite:
+            componentes_criticos_neste_ciclo.add(componente)
+            
+            if (agora - ultimo_alerta_critico[componente]) > COOLDOWN_SEGUNDOS:
+                if abrir_chamado_jira(componente, valor_atual, limite, "CRITICO"):
+                    ultimo_alerta_critico[componente] = agora
+            
+
+    for componente, valor_atual in [("CPU", cpu_val), ("RAM", ram_val), ("Disco", disco_percent)]:
+        
+        if componente in componentes_criticos_neste_ciclo:
+            continue
+
+        limite = LIMITES_MEDIOS[componente]
+        
+        if valor_atual > limite:
+            if (agora - ultimo_alerta_medio[componente]) > COOLDOWN_SEGUNDOS:
+                if abrir_chamado_jira(componente, valor_atual, limite, "MEDIO"):
+                    ultimo_alerta_medio[componente] = agora
 
 if __name__ == "__main__":
     monitoramento()
