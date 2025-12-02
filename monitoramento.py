@@ -290,8 +290,8 @@ def verificar_alertas():
         return
 
     # Limites
-    LIMITES_CRITICOS = { "CPU": 90.0, "RAM": 90.0, "Disco": 95.0 }
-    LIMITES_MEDIOS = { "CPU": 70.0, "RAM": 75.0, "Disco": 85.0 }
+    LIMITES_CRITICOS = { "CPU": 90.0, "RAM": 90.0, "Disco": 90.0 }
+    LIMITES_MEDIOS = { "CPU": 75.0, "RAM": 75.0, "Disco": 75.0 }
 
     cpu_val = dados['CPU'][-1]
     ram_val = dados['RAM_Percent'][-1]
