@@ -129,6 +129,17 @@ def salvar_csv():
     df = pd.DataFrame(dados)
     df.to_csv("coletaGeralOTS.csv", encoding="utf-8", index=False)
 
+def salvar_csv_unico():
+    global dados
+    if not dados["timestamp"]:
+        return
+    
+    ultima_linha = {col: dados[col][-1] for col in dados}
+
+    with open("coletaUnicaOTS.json", "w", encoding="utf-8") as f:
+        json.dump(ultima_linha, f, ensure_ascii=False, indent=4)
+
+
 def subirCSVS3():
     idGaragem = get_id_garagem()
     anoAtual = datetime.now().strftime('%Y')
@@ -152,6 +163,22 @@ def subirCSVS3():
     except Exception as e:
         print(f"--- Falha ao subir o arquivo para o S3: {e} ---")
 
+def subir_csv_unico_s3():
+    idGaragem = get_id_garagem()
+
+    client = boto3.client('s3')
+    bucket = 's3-raw-ontracksystems'
+
+    caminho_s3 = f"idGaragem={idGaragem}/snapshot/coletaUnicaOTS.json"
+
+    try:
+        print("\n--- Enviando coleta única (JSON) para o S3 ---")
+        client.upload_file("coletaUnicaOTS.json", bucket, caminho_s3)
+        print("--- Upload do arquivo único concluído! ---")
+    except Exception as e:
+        print(f"Erro ao enviar arquivo único: {e}")
+
+
 def monitoramento():
     global dados
     tempo_desde_ultimo_upload = 0
@@ -162,6 +189,7 @@ def monitoramento():
         while True:
             obter_uso()
             salvar_csv()
+            salvar_csv_unico()
             verificar_alertas()
             
             if dados['timestamp']:
