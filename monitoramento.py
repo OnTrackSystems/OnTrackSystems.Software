@@ -198,6 +198,7 @@ def monitoramento():
             tempo_desde_ultimo_upload += INTERVALO_COLETA_SEGUNDOS
             if tempo_desde_ultimo_upload >= INTERVALO_UPLOAD_SEGUNDOS:
                 subirCSVS3()
+                subir_csv_unico_s3()
                 print("--- Lote enviado. Limpando dados para o proximo ciclo. ---")
                 dados = {key: [] for key in dados}
                 tempo_desde_ultimo_upload = 0
